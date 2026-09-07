@@ -155,7 +155,7 @@ LinxV5TargetLowering::LinxV5TargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FPOW, FPVTs, Expand);
     setOperationAction(ISD::FCOPYSIGN, FPVTs, Expand);
     setOperationAction(ISD::FABS, FPVTs, Expand);
-    setOperationAction(ISD::FSQRT, FPVTs, LibCall);
+    setOperationAction(ISD::FSQRT, FPVTs, Legal);
     setOperationAction(ISD::FEXP, FPVTs, LibCall);
     setOperationAction(ISD::FLOG, FPVTs, LibCall);
     setOperationAction(ISD::FSIN, FPVTs, LibCall);

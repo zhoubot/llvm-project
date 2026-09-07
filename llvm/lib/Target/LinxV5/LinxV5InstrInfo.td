@@ -269,10 +269,26 @@ class ALUriZ6_Base<bits<3> Func, LinxV5InstOpcode opc, Operand Imm, string opcst
 class ALUriZ5_Base<bits<3> Func, LinxV5InstOpcode opc, Operand Imm, string opcstr, LinxV5InstType type> :
     LinxV5Inst_E_Z5<type, opc, Func,(outs DstRWithArrow:$DstR), (ins GPRSrc:$SrcL, Imm:$Imm5), opcstr>;
 
+class PTOShiftRR<bits<3> Func, bits<7> OpcodeBits, string opcstr> :
+    LinxV5Inst<(outs DstRWithArrow:$DstR),
+               (ins GPRSrc:$SrcL, GPRSrc:$SrcR), opcstr, ""> {
+  bits<5> SrcR;
+  bits<5> SrcL;
+  bits<5> DstR;
+  let Inst{31-25} = 0;
+  let Inst{24-20} = SrcR;
+  let Inst{19-15} = SrcL;
+  let Inst{14-12} = Func;
+  let Inst{11-7} = DstR;
+  let Opcode = OpcodeBits{6-4};
+  let Inst{3-0} = OpcodeBits{3-0};
+  let AsmString = opcstr # "\t$SrcL, $SrcR, $DstR";
+}
+
 multiclass ALUshift<bits<3> Func, string opcstr, LinxV5InstType type> {
-  def ""  : ALUrrZ5_Base<Func, OPC_Arithmetic_Operation_64, SrcRNONE, opcstr, type>;
+  def ""  : PTOShiftRR<Func, 0b0000101, opcstr>;
   def I   : ALUriZ6_Base<Func, OPC_Arithmetic_Operation_64_I, uimm6, opcstr#"i", type>;
-  def W   : ALUrrZ5_Base<Func, OPC_Arithmetic_Operation_32, SrcRNONE, opcstr#"w", type>;
+  def W   : PTOShiftRR<Func, 0b0100101, opcstr#"w">;
   def IW  : ALUriZ5_Base<Func, OPC_Arithmetic_Operation_32_I, uimm5, opcstr#"iw", type>;
 }
 
@@ -2020,6 +2036,9 @@ def : InstAlias<"B.CATR $Type", (BCATR BAttrType:$Type, 0), 1>;
 
 def : InstAlias<"B.DATR $DataLayout$canon", (BDATR BArgFormat:$DataLayout, Canon:$canon, 31, 3, 0, 0, 0, 0), 1>;
 def : InstAlias<"B.DATR\t$srctype, $RMode, $sat", (BDATR 0, 0, BstartDataType:$srctype, 3, 0, RMode:$RMode, Sat:$sat, 0), 1>;
+def : InstAlias<"B.DATR\t$srctype, $PadValue, $RMode, $sat",
+    (BDATR 0, 0, BstartDataType:$srctype, PadValue:$PadValue, 0,
+     RMode:$RMode, Sat:$sat, 0), 1>;
 def : InstAlias<"B.DATR\t$srctype, $RMode", (BDATR 0, 0, BstartDataType:$srctype, 3, 0, RMode:$RMode, 0, 0), 1>;
 //def : InstAlias<"B.DATR\t$srctype, $datalayout", (BDATR BArgFormat:$datalayout, 0,  BstartDataType:$srctype, 3, 0, 0, 0, 0), 1>;
 //def : InstAlias<"B.DATR $DataLayout", (BDATR BArgFormat:$DataLayout, 0, 31, 3, 0, 0, 0, 0), 3>;
@@ -2720,11 +2739,21 @@ multiclass fPatRR<SDPatternOperator N, string I> {
   def : PatRRVT<f16, N, !cast<Instruction>(I # _FH)>;
 }
 
+class PatRVT<ValueType VT, SDPatternOperator N, Instruction I> :
+    Pat<(N VT:$SrcL), (I VT:$SrcL)>;
+
+multiclass fPatR<SDPatternOperator N, string I> {
+  def : PatRVT<f64, N, !cast<Instruction>(I # _FD)>;
+  def : PatRVT<f32, N, !cast<Instruction>(I # _FS)>;
+  def : PatRVT<f16, N, !cast<Instruction>(I # _FH)>;
+}
+
 let Predicates = [isScalar, hasFloat, useDAGISel] in {
 defm : fPatRR<fadd, "FADD">;
 defm : fPatRR<fsub, "FSUB">;
 defm : fPatRR<fmul, "FMUL">;
 defm : fPatRR<fdiv, "FDIV">;
+defm : fPatR<fsqrt, "FSQRT">;
 }
 
 class fPatNEG<ValueType VT, Instruction I> :
@@ -3469,7 +3498,7 @@ class PseudoCUBE_MAMULBAC_Higher_Base_I<string TileOp> :
 def PseudoMAMULBAC_Higher_SizeI : PseudoCUBE_MAMULBAC_Higher_Base_I<"MAMULBAC_Higher">;
 
 class PseudoCUBE_MAMULBAC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
   TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" #"\t$SrcTile0, $SrcTile1, $SrcTile2, $DstTile$TileSize";
@@ -3478,16 +3507,16 @@ class PseudoCUBE_MAMULBAC_Base_I<string TileOp> :
 def PseudoMAMULBAC_SizeI : PseudoCUBE_MAMULBAC_Base_I<"TMATMUL.BIAS">;
 
 class PseudoCUBE_MAMULBACC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
-  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, ACC_TILE_SRC:$ACC)> {
+  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$ACC)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" #"\t$SrcTile0, $SrcTile1, $ACC, $DstTile$TileSize";
 }
 
 def PseudoMAMULBACC_SizeI : PseudoCUBE_MAMULBACC_Base_I<"TMATMUL.ACC">;
 
 class PseudoCUBE_MAMULBMX_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
   TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$SrcTile3)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $SrcTile3, $DstTile$TileSize";
@@ -3496,7 +3525,7 @@ class PseudoCUBE_MAMULBMX_Base_I<string TileOp> :
 def PseudoMAMULBMX_SizeI : PseudoCUBE_MAMULBMX_Base_I<"TMATMULMX">;
 
 class PseudoCUBE_MAMULBMXB_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
   TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $DstTile$TileSize";
@@ -3514,7 +3543,7 @@ PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
 def PseudoMAMULBMXAC_Higher_SizeI : PseudoCUBE_MAMULBMXAC_Higher_Base_I<"MAMULBMXAC_Higher">;
 
 class PseudoCUBE_MAMULBMXAC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
        TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$SrcTile3, TILE_Src_Reg:$SrcTile4)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $SrcTile3, $SrcTile4, $DstTile$TileSize";
@@ -3532,7 +3561,7 @@ class PseudoCUBE_MAMULBMXBAC_Higher_Base_I<string TileOp> :
 def PseudoMAMULBMXBAC_Higher_SizeI : PseudoCUBE_MAMULBMXBAC_Higher_Base_I<"MAMULBMXAC_Higher">;
 
 class PseudoCUBE_MAMULBMXBAC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
   TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$SrcTile3)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $SrcTile3, $DstTile$TileSize";
@@ -3541,18 +3570,18 @@ class PseudoCUBE_MAMULBMXBAC_Base_I<string TileOp> :
 def PseudoMAMULBMXBAC_SizeI : PseudoCUBE_MAMULBMXBAC_Base_I<"TMATMULMX.BIAS">;
 
 class PseudoCUBE_MAMULBMXACC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
-  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$SrcTile3, ACC_TILE_SRC:$ACC)> {
+  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$SrcTile3, TILE_Src_Reg:$ACC)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $SrcTile3, $ACC, $DstTile$TileSize";
 }
 
 def PseudoMAMULBMXACC_SizeI : PseudoCUBE_MAMULBMXACC_Base_I<"TMATMULMX.ACC">;
 
 class PseudoCUBE_MAMULBMXBACC_Base_I<string TileOp> :
-  PseudoCCallImpl<(outs ACC_TILE_DstWithArrow:$DstTile),
+  PseudoCCallImpl<(outs TILE_DstWithArrow:$DstTile),
   (ins GPRPlusImm:$RegM, PlusImm17:$immM, GPRPlusImm:$RegN, PlusImm17:$immN, GPRPlusImm:$RegK, PlusImm17:$immK, BstartDataType:$DataTypeA, BstartDataType:$DataTypeB,
-  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, ACC_TILE_SRC:$ACC)> {
+  TileSizeWithBracket:$TileSize, TILE_Src_Reg:$SrcTile0, TILE_Src_Reg:$SrcTile1, TILE_Src_Reg:$SrcTile2, TILE_Src_Reg:$ACC)> {
     let AsmString = TileOp # "\t<M: $RegM$immM, N: $RegN$immN, K: $RegK$immK, ${DataTypeA}, ${DataTypeB}>" # "\t$SrcTile0, $SrcTile1, $SrcTile2, $ACC, $DstTile$TileSize";
 }
 

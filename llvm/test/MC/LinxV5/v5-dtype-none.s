@@ -8,6 +8,8 @@
 B.DATR dtype_none, RNONE, NOSAT
 // CHECK: B.DATR NORM.normal, Null
 B.DATR 31, RNONE, NOSAT
+// CHECK: B.DATR FP32, byte0, Zero
+B.DATR FP32, Zero, RNONE, NOSAT
 
 // NEG: error: Match Instruction Error!
 B.DATR 214, RNONE, NOSAT

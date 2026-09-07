@@ -260,7 +260,7 @@ llvm::SmallVector<MCInst> getBATTRFromInst(MCInst Inst,
             .addOperand(MCOperand::createImm(0))
             .addOperand(MCOperand::createImm(LinxV5Op::Canon::NORMAL_CANON))
             .addOperand(MCOperand::createImm(DataTypeB.getImm()))
-            .addOperand(MCOperand::createImm(LinxV5Op::PadValue::Null))
+            .addOperand(MCOperand::createImm(LinxV5Op::PadValue::Zero))
             .addOperand(MCOperand::createImm(LinxV5Op::CmpMode::EQ))
             .addOperand(MCOperand::createImm(LinxV5Op::RMode::RNONE))
             .addOperand(MCOperand::createImm(LinxV5Op::Sat::NOSAT))
@@ -285,6 +285,44 @@ llvm::SmallVector<MCInst> getBIOTFromInst(MCInst Inst, const MCInstrInfo &MII) {
   // VCALL/MCALL
   if (LinxV5II::isTileOp(TSFlags) && !LinxV5II::isHeaderOnly(TSFlags)) {
     getPseudoCallBIOTBySrcDstNum(McVec, Inst, MII);
+    return McVec;
+  }
+
+  // Active local Matrix pseudos share one stable operand layout:
+  //   Op0 destination, Op1..6 dimensions, Op7..8 data types,
+  //   Op9 destination SizeCode, Op10..N relative Local sources.
+  // Bind sources in their encoded order and place the destination only on
+  // the terminating packet. The source register spellings (T#n/U#n/M#n/N#n)
+  // are architectural relative-generation selectors, not physical indices.
+  if (isActiveMatrixPseudo(Inst.getOpcode()) &&
+      Inst.getOpcode() != LinxV5::PseudoMAMULB_SharedRight_SizeI) {
+    constexpr unsigned DstOpNo = 0;
+    constexpr unsigned TileSizeOpNo = 9;
+    constexpr unsigned FirstSrcOpNo = 10;
+    assert(Inst.getNumOperands() > FirstSrcOpNo &&
+           "active Matrix pseudo must carry at least one source");
+
+    unsigned SrcOpNo = FirstSrcOpNo;
+    while (SrcOpNo < Inst.getNumOperands()) {
+      unsigned Remaining = Inst.getNumOperands() - SrcOpNo;
+      unsigned ThisCount = std::min(2u, Remaining);
+      bool IsLast = Remaining <= 2;
+      unsigned Opcode = ThisCount == 1
+                            ? (IsLast ? LinxV5::B_IOT_OneSrc_Dst
+                                      : LinxV5::B_IOT_OneSrc_NoDst)
+                            : (IsLast ? LinxV5::B_IOT_TwoSrc_Dst
+                                      : LinxV5::B_IOT_TwoSrc_NoDst);
+      MCInstBuilder Builder(Opcode);
+      if (IsLast)
+        Builder.addOperand(Inst.getOperand(DstOpNo));
+      Builder.addOperand(MCOperand::createImm(0b1111));
+      if (IsLast)
+        Builder.addOperand(Inst.getOperand(TileSizeOpNo));
+      Builder.addOperand(MCOperand::createImm(IsLast ? 1 : 0));
+      for (unsigned I = 0; I < ThisCount; ++I)
+        Builder.addOperand(Inst.getOperand(SrcOpNo++));
+      McVec.push_back(Builder);
+    }
     return McVec;
   }
   switch (Inst.getOpcode()) {
