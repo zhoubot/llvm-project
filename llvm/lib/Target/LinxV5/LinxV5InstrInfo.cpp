@@ -201,6 +201,7 @@ unsigned LinxV5::getTileOpRegSize(MachineInstr &MI, Register Reg) {
       if (SA.Defs[i]->getReg() == Reg)
         return SA.Sizes[i];
     }
+    report_fatal_error("Can not find tile definition in inline asm");
   } else {
     // FIXME: this is a magic num
     unsigned di = 0;
@@ -208,6 +209,8 @@ unsigned LinxV5::getTileOpRegSize(MachineInstr &MI, Register Reg) {
       if (MI.getOperand(di).getReg() == Reg)
         break;
     }
+    if (di == MI.getNumExplicitDefs())
+      report_fatal_error("Can not find tile definition in machine instruction");
     unsigned Idx = MI.getNumExplicitDefs() + 7 + di;
     return MI.getOperand(Idx).getImm();
   }
@@ -592,7 +595,6 @@ void LinxV5InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     }
   } else if (LinxV5::Tile_ABS_CGRegClass.contains(DstReg)) {
     unsigned RegSizeCode = LinxV5::getTileRegSize(MBB, MBBI, SrcReg, false);
-    unsigned RegSize = 1 << (RegSizeCode + 4);
     BuildMI(MBB, MBBI, DL, get(LinxV5::PseudoTCOPY), DstReg)
         .addImm(RegSizeCode)
         .addReg(SrcReg, getKillRegState(KillSrc));

@@ -401,7 +401,7 @@ void LinxV5RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     int FI = MI.getOperand(1).getIndex();
     unsigned RegSize = MF.getFrameInfo().getObjectSize(FI);
     assert(RegSize >= 512 && RegSize <= 64 * 1024);
-    unsigned RegSizeCode = llvm::Log2_32(RegSize) - 4;
+    unsigned RegSizeCode = llvm::Log2_32(RegSize) - 6;
 
     Register AddrReg = MRI.createVirtualRegister(&LinxV5::GRRegClass);
     if (isUInt<12>(Offset) || isUInt<12>(-Offset)) {

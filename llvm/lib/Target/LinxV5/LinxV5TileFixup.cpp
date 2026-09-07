@@ -130,7 +130,7 @@ bool LinxV5TileFixup::AnnotateTileSizes(MachineFunction &MF) {
 
         unsigned RegSizeCode = LinxV5::getTileRegSize(MBB, MI, TileReg, true);
         if (RegSizeCode != -1u) {
-          unsigned RegSize = 1 << (RegSizeCode + 4);
+          unsigned RegSize = 1 << (RegSizeCode + 6);
           int FI = MI.getOperand(1).getIndex();
           MFI.setObjectSize(FI, RegSize);
           MFI.setObjectAlignment(FI, Align(256));
